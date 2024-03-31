@@ -96,11 +96,19 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
                                  grad_clip=grad_clip)
         train_duration = time.perf_counter() - epoch_start
         psnrs, ssims = evaluate(model, test_loader, logger)
+        eval_duration = time.perf_counter() - train_duration
         logger.log({'epoch_loss': epoch_loss,
                    'epoch_train_time': train_duration,
+                    'epoch_eval_time': eval_duration,
                     'mean_psnr': np.mean(psnrs),
                     'mean_ssim': np.mean(ssims)
                     })
+        print(f'epoch_loss: {epoch_loss}'
+              f'epoch_train_time: {train_duration}'
+              f'epoch_eval_time: {eval_duration}'
+              f'mean_psnr: {np.mean(psnrs)}'
+              f'mean_ssim: {np.mean(ssims)}'
+              )
 
         if mean_ssim := np.mean(ssims) > best_ssim:
             best_ssim = mean_ssim
@@ -157,6 +165,7 @@ def train_epoch(model: nn.Module, train_loader: DataLoader, criterion, optimizer
 def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
     psnrs = []
     ssims = []
+    model.eval()
     with torch.no_grad():
         # Batches
         for lr_imgs, hr_imgs in tqdm(test_loader):

@@ -42,11 +42,12 @@ class SRDataset(Dataset):
             assert self.crop_size % self.scaling_factor == 0, "Crop dimensions are not perfectly divisible by scaling factor! This will lead to a mismatch in the dimensions of the original HR patches and their super-resolved (SR) versions!"
 
         # Read list of image-paths
-        with open(os.path.join(data_folder, 'train_images.json'), 'r') as j:
-            if self.stage == 'train':
-                self.images = json.load(j)['train_paths']
-            else:
-                self.images = json.load(j)['test_paths']
+        if self.stage == 'train':
+            with open(os.path.join(data_folder, 'train_images.json'), 'r') as j:
+                self.images = json.load(j)
+        else:
+            with open(os.path.join(data_folder, 'test_images.json'), 'r') as j:
+                self.images = json.load(j)
 
         # Select the correct set of transforms
         self.transform = ImageTransforms(split=self.stage,
@@ -104,7 +105,9 @@ def prepare_data():
 
     print(len(train_paths), len(test_paths))
     with open(os.path.join(data_folder, 'train_images.json'), 'w') as j:
-        json.dump({'train_paths': train_paths, 'test_paths': test_paths}, j)
+        json.dump(train_paths, j)
+    with open(os.path.join(data_folder, 'test_images.json'), 'w') as j:
+        json.dump(test_paths, j)
 
 
 if __name__ == '__main__':

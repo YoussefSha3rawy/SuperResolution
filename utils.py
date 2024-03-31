@@ -2,12 +2,12 @@ import argparse
 import yaml
 from PIL import Image
 import os
-import json
 import random
 import torchvision.transforms.functional as FT
 import torch
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available(
+) else 'mps' if torch.backends.mps.is_available() else "cpu")
 
 # Some constants
 rgb_weights = torch.FloatTensor([65.481, 128.553, 24.966]).to(device)
@@ -19,43 +19,6 @@ imagenet_mean_cuda = torch.FloatTensor([0.485, 0.456, 0.406]).to(
     device).unsqueeze(0).unsqueeze(2).unsqueeze(3)
 imagenet_std_cuda = torch.FloatTensor([0.229, 0.224, 0.225]).to(
     device).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-
-
-def create_data_lists(train_folders, test_folders, min_size, output_folder):
-    """
-    Create lists for images in the training set and each of the test sets.
-
-    :param train_folders: folders containing the training images; these will be merged
-    :param test_folders: folders containing the test images; each test folder will form its own test set
-    :param min_size: minimum width and height of images to be considered
-    :param output_folder: save data lists here
-    """
-    print("\nCreating data lists... this may take some time.\n")
-    train_images = list()
-    for d in train_folders:
-        for i in os.listdir(d):
-            img_path = os.path.join(d, i)
-            img = Image.open(img_path, mode='r')
-            if img.width >= min_size and img.height >= min_size:
-                train_images.append(img_path)
-    print("There are %d images in the training data.\n" % len(train_images))
-    with open(os.path.join(output_folder, 'train_images.json'), 'w') as j:
-        json.dump(train_images, j)
-
-    for d in test_folders:
-        test_images = list()
-        test_name = d.split("/")[-1]
-        for i in os.listdir(d):
-            img_path = os.path.join(d, i)
-            img = Image.open(img_path, mode='r')
-            if img.width >= min_size and img.height >= min_size:
-                test_images.append(img_path)
-        print("There are %d images in the %s test data.\n" %
-              (len(test_images), test_name))
-        with open(os.path.join(output_folder, test_name + '_test_images.json'), 'w') as j:
-            json.dump(test_images, j)
-
-    print("JSONS containing lists of Train and Test images have been saved to %s\n" % output_folder)
 
 
 def convert_image(img, source, target):

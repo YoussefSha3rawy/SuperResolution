@@ -100,7 +100,7 @@ class ResidualBlock(nn.Module):
     A residual block, comprising two convolutional blocks with a residual connection across them.
     """
 
-    def __init__(self, kernel_size=3, n_channels=64):
+    def __init__(self, kernel_size=3, n_channels=64, num_heads=8):
         """
         :param kernel_size: kernel size
         :param n_channels: number of input and output channels (same because the input must be added to the output)
@@ -115,6 +115,10 @@ class ResidualBlock(nn.Module):
         self.conv_block2 = ConvolutionalBlock(in_channels=n_channels, out_channels=n_channels, kernel_size=kernel_size,
                                               batch_norm=True, activation=None)
 
+        if num_heads > 0:
+            self.attention = nn.MultiheadAttention(
+                embed_dim=n_channels, num_heads=num_heads, batch_first=True)
+
     def forward(self, input):
         """
         Forward propagation.
@@ -125,6 +129,13 @@ class ResidualBlock(nn.Module):
         residual = input  # (N, n_channels, w, h)
         output = self.conv_block1(input)  # (N, n_channels, w, h)
         output = self.conv_block2(output)  # (N, n_channels, w, h)
+
+        if hasattr(self, 'attention'):
+            B, n_channels, w, h = output.size()
+            output = output.reshape(B, w * h, n_channels)
+            output, _ = self.attention(output, output, output)
+            output = output.reshape(B, n_channels, w, h)
+
         output = output + residual  # (N, n_channels, w, h)
 
         return output
@@ -135,7 +146,7 @@ class SRResNet(nn.Module):
     The SRResNet, as defined in the paper.
     """
 
-    def __init__(self, large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=4):
+    def __init__(self, large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=4, num_heads=0):
         """
         :param large_kernel_size: kernel size of the first and last convolutions which transform the inputs and outputs
         :param small_kernel_size: kernel size of all convolutions in-between, i.e. those in the residual and subpixel convolutional blocks
@@ -156,7 +167,7 @@ class SRResNet(nn.Module):
 
         # A sequence of n_blocks residual blocks, each containing a skip-connection across the block
         self.residual_blocks = nn.Sequential(
-            *[ResidualBlock(kernel_size=small_kernel_size, n_channels=n_channels) for i in range(n_blocks)])
+            *[ResidualBlock(kernel_size=small_kernel_size, n_channels=n_channels, num_heads=num_heads) for i in range(n_blocks)])
 
         # Another convolutional block
         self.conv_block2 = ConvolutionalBlock(in_channels=n_channels, out_channels=n_channels,
