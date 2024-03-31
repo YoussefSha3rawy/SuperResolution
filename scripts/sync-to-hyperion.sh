@@ -1,0 +1,1 @@
+rsync -uahP --info=progress2 --exclude=env --exclude=data --exclude=wandb --exclude=__pycache__ --exclude=*.zip --exclude=.git --exclude=weights ~/Documents/OneDrive\ -\ City,\ University\ of\ London/Documents/MSc\ Files/INM705/SuperResolution/* adfx751@localhost:INM705_project/
