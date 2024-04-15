@@ -1,11 +1,17 @@
-model:
+generator:
   # kernel size of the first and last convolutions which transform the inputs and outputs
-  large_kernel_size: 9
-  # kernel size of all convolutions in-between, i.e. those in the residual and subpixel convolutional blocks
-  small_kernel_size: 3
-  n_channels: 64  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
-  n_blocks: 16  # number of residual blocks
-  num_heads: 8 # number of heads for multihead attention.
+  # large_kernel_size: 9
+  # # kernel size of all convolutions in-between, i.e. those in the residual and subpixel convolutional blocks
+  # small_kernel_size: 3
+  # n_channels: 64  # number of channels in-between, i.e. the input and output channels for the residual and subpixel convolutional blocks
+  # n_blocks: 16  # number of residual blocks
+  # num_heads: 8 # number of heads for multihead attention.
+  checkpoint: SRResNet.pth
+discriminator:
+  kernel_size: 3  # kernel size in all convolutional blocks
+  n_channels: 64  # number of output channels in the first convolutional block, after which it is doubled in every 2nd block thereafter
+  n_blocks: 8  # number of convolutional blocks
+  fc_size: 1024  # size of the first fully connected layer
 train:
   # Learning parameters
   # checkpoint: None  # path to model checkpoint, None if none

@@ -31,4 +31,4 @@ wandb login $WANDB_API_KEY --relogin
 #pip freeze
 #Run your script.
 export https_proxy=http://hpc-proxy00.city.ac.uk:3128
-python3 main.py
+python3 train_srgan.py

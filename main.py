@@ -31,13 +31,13 @@ def main():
     settings = read_settings(args.config)
 
     # Access and use the settings as needed
-    model_settings = settings.get('model', {})
+    generator_settings = settings.get('generator', {})
     train_settings = settings.get('train', {})
     dataset_settings = settings.get('dataset', {})
     train_dataloader_settings = settings.get('train_dataloader', {})
     test_dataloader_settings = settings.get('test_dataloader', {})
 
-    print(f'{model_settings = }\n{train_settings = }\n{dataset_settings = }\n'
+    print(f'{generator_settings = }\n{train_settings = }\n{dataset_settings = }\n'
           f'{train_dataloader_settings = }\n{test_dataloader_settings = }')
 
     train_dataset = SRDataset(**dataset_settings,
@@ -56,12 +56,14 @@ def main():
     test_loader = DataLoader(
         test_dataset, **test_dataloader_settings, pin_memory=True)
 
-    model = SRResNet(**model_settings,
+    model = SRResNet(**generator_settings,
                      scaling_factor=dataset_settings['scaling_factor'])
 
     # Logger
-    logger = Logger({}, model.__class__.__name__, 'INM705-SuperResolution')
+    logger = Logger(settings, model.__class__.__name__,
+                    'INM705-SuperResolution')
 
+    # Train
     train(model, train_loader, test_loader, logger, **train_settings)
 
 
@@ -94,20 +96,20 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
                                  criterion=criterion,
                                  optimizer=optimizer,
                                  grad_clip=grad_clip)
-        train_duration = time.perf_counter() - epoch_start
+        train_end = time.perf_counter()
         psnrs, ssims = evaluate(model, test_loader, logger)
-        eval_duration = time.perf_counter() - train_duration
+        eval_end = time.perf_counter()
         logger.log({'epoch_loss': epoch_loss,
-                   'epoch_train_time': train_duration,
-                    'epoch_eval_time': eval_duration,
+                   'epoch_train_time': train_end - epoch_start,
+                    'epoch_eval_time': eval_end - train_end,
                     'mean_psnr': np.mean(psnrs),
                     'mean_ssim': np.mean(ssims)
                     })
-        print(f'epoch_loss: {epoch_loss}'
-              f'epoch_train_time: {train_duration}'
-              f'epoch_eval_time: {eval_duration}'
-              f'mean_psnr: {np.mean(psnrs)}'
-              f'mean_ssim: {np.mean(ssims)}'
+        print(f'epoch_loss: {epoch_loss}\n'
+              f'epoch_train_time: {train_end - epoch_start}\n'
+              f'epoch_eval_time: {eval_end - train_end}\n'
+              f'mean_psnr: {np.mean(psnrs)}\n'
+              f'mean_ssim: {np.mean(ssims)}\n'
               )
 
         if mean_ssim := np.mean(ssims) > best_ssim:
@@ -194,7 +196,7 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
             hr_img = hr_imgs[-i]
             sr_img = sr_imgs[-i]
             logger.log({
-                'lr': wandb.Image(convert_image(lr_img, source='[-1, 1]', target='pil')),
+                'lr': wandb.Image(convert_image(lr_img, source='[0, 1]', target='pil')),
                 'hr': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
                 'sr': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
             })

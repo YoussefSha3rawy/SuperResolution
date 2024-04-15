@@ -204,13 +204,6 @@ def save_checkpoint(epoch, model, model_name, optimizer):
     torch.save(ckpt, os.path.join(directory_name, file_name))
 
 
-def load_checkpoint(model, file_name):
-    ckpt = torch.load(os.path.join('weights', file_name))
-    model_weights = ckpt['model_weights']
-    model.load_state_dict(model_weights)
-    print("Model's pretrained weights loaded!")
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Process settings from a YAML file.')
@@ -223,3 +216,23 @@ def read_settings(config_path):
     with open(config_path, 'r') as file:
         settings = yaml.safe_load(file)
     return settings
+
+
+def prime_factors(n):
+    factors = []
+    # While n is divisible by 2, add 2 as a factor and divide n by 2
+    while n % 2 == 0:
+        factors.append(2)
+        n //= 2
+
+    # Now n must be odd. Start checking for factors from 3 up to the square root of n
+    for i in range(3, int(n**0.5) + 1, 2):
+        while n % i == 0:
+            factors.append(i)
+            n //= i
+
+    # If n is still greater than 2, it means it's a prime number itself
+    if n > 2:
+        factors.append(n)
+
+    return factors
