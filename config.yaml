@@ -8,10 +8,12 @@ generator:
   # num_heads: 8 # number of heads for multihead attention.
   checkpoint: SRResNet.pth
 discriminator:
+  discriminator_type: Default
   kernel_size: 3  # kernel size in all convolutional blocks
   n_channels: 64  # number of output channels in the first convolutional block, after which it is doubled in every 2nd block thereafter
   n_blocks: 8  # number of convolutional blocks
   fc_size: 1024  # size of the first fully connected layer
+  checkpoint: null
 train:
   # Learning parameters
   # checkpoint: None  # path to model checkpoint, None if none

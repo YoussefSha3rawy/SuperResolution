@@ -1,7 +1,7 @@
 import time
 import torch.backends.cudnn as cudnn
 from torch import nn
-from models import SRResNet, TruncatedVGG19
+from models import SRResNet, TruncatedVGG19, Discriminator
 from dataset import SRDataset
 from utils import *
 from torch.utils.data import DataLoader
@@ -11,7 +11,7 @@ from tqdm import tqdm
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import wandb
 
-from torchvision.models import efficientnet_v2_s, EfficientNet_V2_S_Weights
+from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
 
 # Learning parameters
 vgg19_i = 5  # the index i in the definition for VGG loss; see paper or models.py
@@ -52,10 +52,14 @@ def main():
     generator = SRResNet(**generator_settings,
                          scaling_factor=dataset_settings['scaling_factor'])
 
-    discriminator = efficientnet_v2_s(
-        weights=EfficientNet_V2_S_Weights.DEFAULT)
-    discriminator.classifier[1] = nn.Linear(
-        discriminator.classifier[1].in_features, 1)
+    if discriminator_settings['discriminator_type'] == 'EfficientNet':
+        discriminator = efficientnet_b3(
+            weights=EfficientNet_B3_Weights.DEFAULT)
+        discriminator.classifier[1] = nn.Linear(
+            discriminator.classifier[1].in_features, 1)
+    else:
+        del discriminator_settings['discriminator_type']
+        discriminator = Discriminator(**discriminator_settings)
 
     # Truncated VGG19 network to be used in the loss calculation
     truncated_vgg19 = TruncatedVGG19(i=36)
@@ -135,18 +139,21 @@ def train(generator: nn.Module, discriminator: nn.Module, truncated_vgg19: nn.Mo
                     'mean_psnr': np.mean(psnrs),
                     'mean_ssim': np.mean(ssims)
                     })
-        print(f'epoch_loss: {epoch_perceptual_loss}\n'
+        print(f'perceptual_loss: {epoch_perceptual_loss}\n'
+              f'content_loss: {epoch_content_loss}\n'
+              f'adversial_loss: {epoch_adversial_loss}\n'
+              f'discriminator_loss: {epoch_discriminator_loss}\n'
               f'epoch_train_time: {train_end - epoch_start}\n'
               f'epoch_eval_time: {eval_end - train_end}\n'
               f'mean_psnr: {np.mean(psnrs)}\n'
               f'mean_ssim: {np.mean(ssims)}'
               )
 
-        if mean_ssim := np.mean(ssims) > best_ssim:
-            best_ssim = mean_ssim
-            # Save checkpoint
-            save_checkpoint(
-                epoch, generator, generator.__class__.__name__, optimizer_g)
+        # Save checkpoint
+        save_checkpoint(
+            epoch, generator, f'{generator.__class__.__name__}_{discriminator.__class__.__name__}', optimizer_g)
+        save_checkpoint(
+            epoch, discriminator, discriminator.__class__.__name__, optimizer_d)
 
 
 def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content_loss_criterion, adversarial_loss_criterion,
@@ -203,6 +210,8 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
             sr_discriminated, torch.ones_like(sr_discriminated))
         perceptual_loss = content_loss + beta * adversarial_loss
 
+        total_content_loss += content_loss
+        total_adversial_loss += adversarial_loss
         total_perceptual_loss += perceptual_loss
 
         # Back-prop.
@@ -276,15 +285,14 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
             psnrs.append(psnr)
             ssims.append(ssim)
 
-        for i in range(1, 2):
-            lr_img = lr_imgs[-i]
-            hr_img = hr_imgs[-i]
-            sr_img = sr_imgs[-i]
-            logger.log({
-                'lr': wandb.Image(convert_image(lr_img, source='[0, 1]', target='pil')),
-                'hr': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
-                'sr': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
-            })
+        lr_img = lr_imgs[-1]
+        hr_img = hr_imgs[-1]
+        sr_img = sr_imgs[-1]
+        logger.log({
+            'lr': wandb.Image(convert_image(lr_img.cpu(), source='imagenet-norm', target='pil')),
+            'hr': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
+            'sr': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
+        })
     return psnrs, ssims
 
 

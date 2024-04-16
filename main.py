@@ -112,10 +112,8 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
               f'mean_ssim: {np.mean(ssims)}\n'
               )
 
-        if mean_ssim := np.mean(ssims) > best_ssim:
-            best_ssim = mean_ssim
-            # Save checkpoint
-            save_checkpoint(epoch, model, model.__class__.__name__, optimizer)
+        # Save checkpoint
+        save_checkpoint(epoch, model, model.__class__.__name__, optimizer)
 
 
 def train_epoch(model: nn.Module, train_loader: DataLoader, criterion, optimizer: torch.optim.Optimizer, grad_clip=None):
@@ -196,7 +194,7 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
             hr_img = hr_imgs[-i]
             sr_img = sr_imgs[-i]
             logger.log({
-                'lr': wandb.Image(convert_image(lr_img, source='[0, 1]', target='pil')),
+                'lr': wandb.Image(convert_image(lr_img.cpu(), source='imagenet-norm', target='pil')),
                 'hr': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
                 'sr': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
             })
