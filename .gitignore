@@ -344,3 +344,4 @@ pyrightconfig.json
 data
 img
 wandb
+super_resolve.py

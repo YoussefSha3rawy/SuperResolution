@@ -1,0 +1,1 @@
+rsync -uahP --info=progress2 adfx751@localhost:INM705_project/weights/* ~/Documents/OneDrive\ -\ City,\ University\ of\ London/Documents/MSc\ Files/INM705/SuperResolution/weights
