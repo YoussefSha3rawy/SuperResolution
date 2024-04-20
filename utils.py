@@ -1,3 +1,4 @@
+import time
 import argparse
 import yaml
 from PIL import Image
@@ -87,7 +88,7 @@ class ImageTransforms(object):
     Image transformation pipeline.
     """
 
-    def __init__(self, split, crop_size, scaling_factor, lr_img_type, hr_img_type):
+    def __init__(self, split, crop_size, scaling_factor, lr_img_type, hr_img_type, max_test_size=100000):
         """
         :param split: one of 'train' or 'test'
         :param crop_size: crop size of HR images
@@ -100,6 +101,7 @@ class ImageTransforms(object):
         self.scaling_factor = scaling_factor
         self.lr_img_type = lr_img_type
         self.hr_img_type = hr_img_type
+        self.max_test_size = max_test_size
 
         assert self.split in {'train', 'test'}
 
@@ -119,12 +121,19 @@ class ImageTransforms(object):
             hr_img = img.crop((left, top, right, bottom))
         else:
             # Take the largest possible center-crop of it such that its dimensions are perfectly divisible by the scaling factor
-            x_remainder = img.width % self.scaling_factor
-            y_remainder = img.height % self.scaling_factor
-            left = x_remainder // 2
-            top = y_remainder // 2
-            right = left + (img.width - x_remainder)
-            bottom = top + (img.height - y_remainder)
+            original_width, original_height = img.size
+
+            # Calculate the new dimensions that are divisible by the given divisor
+            new_width = min([original_width - (original_width %
+                            self.scaling_factor), self.max_test_size])
+            new_height = min([original_height - (original_height %
+                             self.scaling_factor), self.max_test_size])
+
+            # Calculate left, top, right, and bottom coordinates for center crop
+            left = (original_width - new_width) // 2
+            top = (original_height - new_height) // 2
+            right = left + new_width
+            bottom = top + new_height
             hr_img = img.crop((left, top, right, bottom))
 
         # Downsize this crop to obtain a low-resolution version of it
@@ -140,27 +149,6 @@ class ImageTransforms(object):
         hr_img = convert_image(hr_img, source='pil', target=self.hr_img_type)
 
         return lr_img, hr_img
-
-
-class AverageMeter(object):
-    """
-    Keeps track of most recent, average, sum, and count of a metric.
-    """
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
 
 
 def clip_gradient(optimizer, grad_clip):
@@ -242,3 +230,37 @@ def prime_factors(n):
         factors.append(n)
 
     return factors
+
+
+def time_function(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        print(
+            f"Execution time of {func.__name__}: {execution_time:.6f} seconds")
+        return result
+    return wrapper
+
+
+class Timer:
+    def __init__(self) -> None:
+        self.timestamps = []
+
+    def step(self, label: str):
+        self.timestamps.append((label, time.perf_counter()))
+
+    def reset(self):
+        self.timestamps = []
+
+    def display(self):
+        if len(self.timestamps) < 2:
+            print("No timestamps to display.")
+            return
+
+        for i in range(1, len(self.timestamps)):
+            print(
+                f"{self.timestamps[i][0]}: {self.timestamps[i][1] - self.timestamps[i-1][1]:.6f} seconds")
+
+        self.reset()

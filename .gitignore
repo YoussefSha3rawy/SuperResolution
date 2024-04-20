@@ -345,3 +345,4 @@ data
 img
 wandb
 super_resolve.py
+weights/*
