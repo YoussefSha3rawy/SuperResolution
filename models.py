@@ -4,11 +4,15 @@ import os
 from torch import nn
 from utils import prime_factors
 from torchvision.models import vgg19, VGG19_Weights
+import functools
 
 
 class _ResidualBlock(nn.Module):
-    def __init__(self, num_channels, kernel_size) -> None:
+    def __init__(self, num_channels: int, kernel_size: int, num_heads: int) -> None:
         super().__init__()
+        if num_heads > 0:
+            self.attention = nn.MultiheadAttention(
+                num_channels, num_heads=num_heads, dropout=0.1, batch_first=True)
         self.conv_block = nn.Sequential(
             nn.Conv2d(num_channels, num_channels,
                       kernel_size, 1, int(kernel_size / 2)),
@@ -19,8 +23,15 @@ class _ResidualBlock(nn.Module):
             nn.BatchNorm2d(num_channels)
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
+        if hasattr(self, 'attention'):
+            batch_size, num_channels, width, height = x.size()
+            x = x.view(batch_size, num_channels,
+                       width * height).permute(0, 2, 1)
+            out, _ = self.attention(x, x, x)
+            out = out.permute(0, 2, 1).view(
+                batch_size, num_channels, width, height)
         out = self.conv_block(x)
         out += residual
         return out
@@ -42,7 +53,7 @@ class _SubPixelConvolutionalBlock(nn.Module):
 
 
 class SRResNet(nn.Module):
-    def __init__(self, scaling_factor, checkpoint=None) -> None:
+    def __init__(self, scaling_factor, num_heads=0, checkpoint=None) -> None:
         super().__init__()
 
         assert scaling_factor in [2, 3, 4, 6, 8]
@@ -57,8 +68,11 @@ class SRResNet(nn.Module):
             nn.PReLU()
         )
 
-        self.residual_blocks = self._make_residual_blocks(
-            self.num_residual_blocks)
+        residual_block_f = functools.partial(
+            _ResidualBlock, num_channels=self.channel_size, kernel_size=self.small_kernel_size, num_heads=num_heads)
+
+        self.residual_blocks = self._make_layer(
+            residual_block_f, self.num_residual_blocks)
 
         self.block_2 = nn.Sequential(
             nn.Conv2d(self.channel_size, self.channel_size,
@@ -88,9 +102,8 @@ class SRResNet(nn.Module):
 
         return out
 
-    def _make_residual_blocks(self, n_blocks):
-        layers = [_ResidualBlock(
-            self.channel_size, self.small_kernel_size) for _ in range(n_blocks)]
+    def _make_layer(self, block, n_blocks):
+        layers = [block() for _ in range(n_blocks)]
         return nn.Sequential(*layers)
 
     def _make_upscale_blocks(self, scaling):
