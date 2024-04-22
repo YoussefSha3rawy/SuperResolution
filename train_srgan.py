@@ -150,7 +150,7 @@ def train(generator: nn.Module, discriminator: nn.Module, truncated_vgg19: nn.Mo
 
         # Save checkpoint
         save_checkpoint(
-            epoch, generator, f'{generator.__class__.__name__}_{discriminator.__class__.__name__}', optimizer_g)
+            epoch, generator, f'{str(generator)}_{discriminator.__class__.__name__}', optimizer_g)
         save_checkpoint(
             epoch, discriminator, discriminator.__class__.__name__, optimizer_d)
 
@@ -179,16 +179,12 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
     total_perceptual_loss = 0
     total_discriminator_loss = 0
     # Batches
-    timer = Timer()
     for lr_imgs, hr_imgs in tqdm(train_loader):
-        timer.step('Loaded Images')
         # Move to default device
         # (batch_size (N), 3, 24, 24), imagenet-normed
         lr_imgs = lr_imgs.to(device)
         # (batch_size (N), 3, 96, 96), imagenet-normed
         hr_imgs = hr_imgs.to(device)
-
-        timer.step('Moved images to device')
 
         # GENERATOR UPDATE
 
@@ -198,19 +194,13 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         sr_imgs = convert_image(
             sr_imgs, source='[-1, 1]', target='imagenet-norm')
 
-        timer.step('Generated sr imgs')
-
         # Calculate VGG feature maps for the super-resolved (SR) and high resolution (HR) images
         sr_imgs_in_vgg_space = truncated_vgg19(sr_imgs)
         # detached because they're constant, targets
         hr_imgs_in_vgg_space = truncated_vgg19(hr_imgs).detach()
 
-        timer.step('Calculated VGG feature maps')
-
         # Discriminate super-resolved (SR) images
         sr_discriminated = discriminator(sr_imgs)  # (N)
-
-        timer.step('Discriminated sr imgs')
 
         # Calculate the Perceptual loss
         content_loss = content_loss_criterion(
@@ -218,8 +208,6 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         adversarial_loss = adversarial_loss_criterion(
             sr_discriminated, torch.ones_like(sr_discriminated))
         perceptual_loss = content_loss + beta * adversarial_loss
-
-        timer.step('Calculated Generator loss')
 
         total_content_loss += content_loss
         total_adversial_loss += adversarial_loss
@@ -229,16 +217,12 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         optimizer_g.zero_grad()
         perceptual_loss.backward()
 
-        timer.step('Generator back-prop')
-
         # Clip gradients, if necessary
         if grad_clip is not None:
             clip_gradient(optimizer_g, grad_clip)
 
         # Update generator
         optimizer_g.step()
-
-        timer.step('Generator update')
 
         # DISCRIMINATOR UPDATE
 
@@ -250,27 +234,22 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         # It's actually faster to detach the SR images from the G and forward-prop again, than to back-prop. over the G unnecessarily
         # See FAQ section in the tutorial
 
-        timer.step('Discriminated hr and sr imgs')
         # Binary Cross-Entropy loss
         adversarial_loss = adversarial_loss_criterion(sr_discriminated, torch.zeros_like(sr_discriminated)) + \
             adversarial_loss_criterion(
                 hr_discriminated, torch.ones_like(hr_discriminated))
         total_discriminator_loss += adversarial_loss
 
-        timer.step('Calculated Discriminator loss')
         # Back-prop.
         optimizer_d.zero_grad()
         adversarial_loss.backward()
 
-        timer.step('Discriminator back-prop')
         # Clip gradients, if necessary
         if grad_clip is not None:
             clip_gradient(optimizer_d, grad_clip)
 
         # Update discriminator
         optimizer_d.step()
-        timer.step('Discriminator update')
-        timer.display()
     # free some memory since their histories may be stored
     del lr_imgs, hr_imgs, sr_imgs, hr_imgs_in_vgg_space, sr_imgs_in_vgg_space, hr_discriminated, sr_discriminated
 
