@@ -11,7 +11,7 @@ class SRDataset(Dataset):
     A PyTorch Dataset to be used by a PyTorch DataLoader.
     """
 
-    def __init__(self, data_folder, stage, crop_size, scaling_factor, lr_img_type, hr_img_type):
+    def __init__(self, data_folder, stage, crop_size, scaling_factor, lr_img_type, hr_img_type, max_test_size=None):
         """
         :param data_folder: # folder with JSON data files
         :param split: one of 'train' or 'test'
@@ -54,7 +54,8 @@ class SRDataset(Dataset):
                                          crop_size=self.crop_size,
                                          scaling_factor=self.scaling_factor,
                                          lr_img_type=self.lr_img_type,
-                                         hr_img_type=self.hr_img_type)
+                                         hr_img_type=self.hr_img_type,
+                                         max_test_size=max_test_size)
 
     def __getitem__(self, i):
         """

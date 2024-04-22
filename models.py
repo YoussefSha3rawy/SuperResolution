@@ -32,7 +32,7 @@ class _ResidualBlock(nn.Module):
             out, _ = self.attention(x, x, x)
             out = out.permute(0, 2, 1).view(
                 batch_size, num_channels, width, height)
-        out = self.conv_block(x)
+        out = self.conv_block(out)
         out += residual
         return out
 
@@ -57,6 +57,8 @@ class SRResNet(nn.Module):
         super().__init__()
 
         assert scaling_factor in [2, 3, 4, 6, 8]
+
+        self.num_heads = num_heads
 
         self.channel_size = 64
         self.small_kernel_size = 3
@@ -118,6 +120,9 @@ class SRResNet(nn.Module):
         model_weights = ckpt['model_weights']
         self.load_state_dict(model_weights)
         print("Model's pretrained weights loaded!")
+
+    def __str__(self) -> str:
+        return f'{self.__class__.__name__}{"_attention" if self.num_heads > 0 else ""}'
 
 
 class TruncatedVGG19(nn.Module):

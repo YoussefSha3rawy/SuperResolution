@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import wandb
 import numpy as np
+from collections import deque
 
 device = torch.device("cuda" if torch.cuda.is_available(
 ) else 'mps' if torch.backends.mps.is_available() else "cpu")
@@ -60,35 +61,25 @@ def main():
                      scaling_factor=dataset_settings['scaling_factor'])
 
     # Logger
-    logger = Logger(settings, model.__class__.__name__,
+    logger = Logger(settings, str(model),
                     'INM705-SuperResolution')
 
     # Train
     train(model, train_loader, test_loader, logger, **train_settings)
 
 
-def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, logger: Logger, lr: float, epochs: int, checkpoint=None,
+def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, logger: Logger, lr_g: float, epochs: int, checkpoint=None,
           grad_clip=None, early_stopping=None):
     # Initialize model or load checkpoint
-    if checkpoint is None:
-        # Initialize the optimizer
-        optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
-                                     lr=float(lr))
-        start_epoch = 1
-
-    else:
-        checkpoint = torch.load(checkpoint)
-        start_epoch = checkpoint['epoch'] + 1
-        model = checkpoint['model']
-        optimizer = checkpoint['optimizer']
-
+    # Initialize the optimizer
+    optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
+                                 lr=float(lr_g))
     # Move to default device
     model = model.to(device)
     criterion = nn.MSELoss().to(device)
 
-    best_ssim = 0
     # Epochs
-    for epoch in range(start_epoch, epochs + 1):
+    for epoch in range(1, epochs + 1):
         # One epoch's training
         epoch_start = time.perf_counter()
         epoch_loss = train_epoch(model=model,
@@ -113,7 +104,7 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
               )
 
         # Save checkpoint
-        save_checkpoint(epoch, model, model.__class__.__name__, optimizer)
+        save_checkpoint(epoch, model, str(model), optimizer)
 
 
 def train_epoch(model: nn.Module, train_loader: DataLoader, criterion, optimizer: torch.optim.Optimizer, grad_clip=None):
@@ -166,6 +157,10 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
     psnrs = []
     ssims = []
     model.eval()
+
+    num_images_to_plot = 3
+    imgs_to_plot = deque(maxlen=num_images_to_plot)
+
     with torch.no_grad():
         # Batches
         for lr_imgs, hr_imgs in tqdm(test_loader):
@@ -188,15 +183,14 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
                                          data_range=255.)
             psnrs.append(psnr)
             ssims.append(ssim)
+            imgs_to_plot.append(
+                (lr_imgs[0].cpu(), hr_imgs[0].cpu(), sr_imgs[0].cpu()))
 
-        for i in range(1, 2):
-            lr_img = lr_imgs[-i]
-            hr_img = hr_imgs[-i]
-            sr_img = sr_imgs[-i]
+        for i, (lr_img, hr_img, sr_img) in enumerate(imgs_to_plot):
             logger.log({
-                'lr': wandb.Image(convert_image(lr_img.cpu(), source='imagenet-norm', target='pil')),
-                'hr': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
-                'sr': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
+                f'lr_{i}': wandb.Image(convert_image(lr_img, source='imagenet-norm', target='pil')),
+                f'hr_{i}': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
+                f'sr_{i}': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
             })
     return psnrs, ssims
 
