@@ -1,3 +1,4 @@
+import socket
 import time
 import argparse
 import yaml
@@ -6,6 +7,7 @@ import os
 import random
 import torchvision.transforms.functional as FT
 import torch
+from torchvision import transforms
 
 device = torch.device("cuda" if torch.cuda.is_available(
 ) else 'mps' if torch.backends.mps.is_available() else "cpu")
@@ -101,7 +103,11 @@ class ImageTransforms(object):
         self.scaling_factor = scaling_factor
         self.lr_img_type = lr_img_type
         self.hr_img_type = hr_img_type
-        self.max_test_size = max_test_size
+        self.max_test_size = max_test_size if max_test_size is not None else 100000
+
+        if self.split == 'train':
+            self.crop = transforms.RandomCrop(
+                self.crop_size, padding=0, pad_if_needed=True)
 
         assert self.split in {'train', 'test'}
 
@@ -114,11 +120,7 @@ class ImageTransforms(object):
         # Crop
         if self.split == 'train':
             # Take a random fixed-size crop of the image, which will serve as the high-resolution (HR) image
-            left = random.randint(1, img.width - self.crop_size)
-            top = random.randint(1, img.height - self.crop_size)
-            right = left + self.crop_size
-            bottom = top + self.crop_size
-            hr_img = img.crop((left, top, right, bottom))
+            hr_img = self.crop(img)
         else:
             # Take the largest possible center-crop of it such that its dimensions are perfectly divisible by the scaling factor
             original_width, original_height = img.size
@@ -209,6 +211,17 @@ def parse_arguments():
 def read_settings(config_path):
     with open(config_path, 'r') as file:
         settings = yaml.safe_load(file)
+
+    hostname = socket.gethostname()
+
+    if hostname.endswith('local'):  # Example check for local machine names
+        print("Running on Macbook locally")
+        settings['dataset']['data_folder'] = settings['dataset']['data_folder_local']
+    else:
+        print(f"Running on remote server: {hostname}")
+        settings['dataset']['data_folder'] = settings['dataset']['data_folder_hyperion']
+
+    del settings['dataset']['data_folder_local'], settings['dataset']['data_folder_hyperion']
     return settings
 
 
@@ -264,3 +277,38 @@ class Timer:
                 f"{self.timestamps[i][0]}: {self.timestamps[i][1] - self.timestamps[i-1][1]:.6f} seconds")
 
         self.reset()
+
+
+def calculate_gradient_penalty(discriminator, real_imgs, fake_imgs):
+    """
+    Calculates the gradient penalty for Wasserstein GAN training.
+
+    Args:
+        discriminator: The discriminator network.
+        real_imgs: A tensor of real images.
+        fake_imgs: A tensor of fake images.
+
+    Returns:
+        A tensor representing the gradient penalty loss.
+    """
+    # Sample epsilon for interpolation
+    epsilon = torch.rand(real_imgs.size(0), 1, 1, 1).to(device)
+
+    # Interpolate between real and fake images
+    mixed_images = epsilon * real_imgs + (1 - epsilon) * fake_imgs.detach()
+    mixed_images.requires_grad = True
+
+    # Compute gradients of the critic's output with respect to the mixed images
+    mixed_discriminated = discriminator(mixed_images)
+    mixed_gradients = torch.autograd.grad(
+        outputs=mixed_discriminated,
+        inputs=mixed_images,
+        grad_outputs=torch.ones_like(mixed_discriminated),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+
+    # Calculate gradient penalty
+    gradient_penalty = ((mixed_gradients.norm(2, dim=1) - 1) ** 2).mean()
+
+    return gradient_penalty

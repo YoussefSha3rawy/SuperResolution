@@ -11,7 +11,7 @@ from tqdm import tqdm
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import wandb
 from collections import deque
-from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights, resnet50, ResNet50_Weights
+from torchvision.models import efficientnet_b0
 
 # Default device
 device = torch.device("cuda" if torch.cuda.is_available(
@@ -78,7 +78,6 @@ def main():
                              stage='test',
                              lr_img_type='imagenet-norm',
                              hr_img_type='[-1, 1]')
-    # note that we're passing the collate function here
     test_loader = DataLoader(
         test_dataset, **test_dataloader_settings, pin_memory=True)
 
@@ -90,7 +89,7 @@ def main():
 
 
 def train(generator: nn.Module, discriminator: nn.Module, truncated_vgg19: nn.Module, train_loader: DataLoader,
-          test_loader: DataLoader, logger: Logger, epochs: int, lr_g: float, lr_d: float, beta=1e-3, grad_clip=None, early_stopping=0):
+          test_loader: DataLoader, logger: Logger, epochs: int, lr_g: float, lr_d: float, beta=1e-3, grad_clip=None, loss_type='Default', lambda_gp=10, early_stopping=0):
     lr_g = float(lr_g)
     lr_d = float(lr_d)
     beta = float(beta)
@@ -116,31 +115,35 @@ def train(generator: nn.Module, discriminator: nn.Module, truncated_vgg19: nn.Mo
 
         epoch_start = time.perf_counter()
         # One epoch's training
-        epoch_perceptual_loss, epoch_content_loss, epoch_adversial_loss, epoch_discriminator_loss = train_epoch(train_loader=train_loader,
-                                                                                                                generator=generator,
-                                                                                                                discriminator=discriminator,
-                                                                                                                truncated_vgg19=truncated_vgg19,
-                                                                                                                content_loss_criterion=content_loss_criterion,
-                                                                                                                adversarial_loss_criterion=adversarial_loss_criterion,
-                                                                                                                optimizer_g=optimizer_g,
-                                                                                                                optimizer_d=optimizer_d,
-                                                                                                                grad_clip=grad_clip,
-                                                                                                                beta=beta)
+        epoch_perceptual_loss, epoch_content_loss, epoch_adversarial_loss, epoch_discriminator_loss = train_epoch(train_loader=train_loader,
+                                                                                                                  generator=generator,
+                                                                                                                  discriminator=discriminator,
+                                                                                                                  truncated_vgg19=truncated_vgg19,
+                                                                                                                  content_loss_criterion=content_loss_criterion,
+                                                                                                                  adversarial_loss_criterion=adversarial_loss_criterion,
+                                                                                                                  optimizer_g=optimizer_g,
+                                                                                                                  optimizer_d=optimizer_d,
+                                                                                                                  grad_clip=grad_clip,
+                                                                                                                  beta=beta,
+                                                                                                                  loss_type=loss_type,
+                                                                                                                  lambda_gp=lambda_gp)
         train_end = time.perf_counter()
-        psnrs, ssims = evaluate(generator, test_loader, logger)
+        psnrs, ssims, images_dict = evaluate(generator, test_loader, logger)
         eval_end = time.perf_counter()
         logger.log({'perceptual_loss': epoch_perceptual_loss,
                     'content_loss': epoch_content_loss,
-                    'adversial_loss': epoch_adversial_loss,
+                    'adversarial_loss': epoch_adversarial_loss,
                     'discriminator_loss': epoch_discriminator_loss,
                     'epoch_train_time': train_end - epoch_start,
                     'epoch_eval_time': eval_end - train_end,
                     'mean_psnr': np.mean(psnrs),
-                    'mean_ssim': np.mean(ssims)
+                    'mean_ssim': np.mean(ssims),
+                    **images_dict
                     })
-        print(f'perceptual_loss: {epoch_perceptual_loss}\n'
+        print(f'epoch: {epoch}\n'
+              f'perceptual_loss: {epoch_perceptual_loss}\n'
               f'content_loss: {epoch_content_loss}\n'
-              f'adversial_loss: {epoch_adversial_loss}\n'
+              f'adversarial_loss: {epoch_adversarial_loss}\n'
               f'discriminator_loss: {epoch_discriminator_loss}\n'
               f'epoch_train_time: {train_end - epoch_start}\n'
               f'epoch_eval_time: {eval_end - train_end}\n'
@@ -150,13 +153,13 @@ def train(generator: nn.Module, discriminator: nn.Module, truncated_vgg19: nn.Mo
 
         # Save checkpoint
         save_checkpoint(
-            epoch, generator, f'{str(generator)}_{discriminator.__class__.__name__}', optimizer_g)
+            epoch, generator, f'{str(generator)}_{discriminator.__class__.__name__}{f"_{loss_type}" if loss_type != "Default" else ""}', optimizer_g)
         save_checkpoint(
-            epoch, discriminator, discriminator.__class__.__name__, optimizer_d)
+            epoch, discriminator, f'{discriminator.__class__.__name__}{f"_{loss_type}" if loss_type != "Default" else ""}', optimizer_d)
 
 
 def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content_loss_criterion, adversarial_loss_criterion,
-                optimizer_g, optimizer_d, beta, grad_clip=None):
+                optimizer_g, optimizer_d, beta, loss_type, grad_clip=None, lambda_gp=10):
     """
     One epoch's training.
 
@@ -170,17 +173,14 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
     :param optimizer_d: optimizer for the discriminator
     :param epoch: epoch number
     """
-    # Set to train mode
     generator.train()
-    discriminator.train()  # training mode enables batch normalization
+    discriminator.train()
 
     total_content_loss = 0
-    total_adversial_loss = 0
+    total_adversarial_loss = 0
     total_perceptual_loss = 0
     total_discriminator_loss = 0
-    # Batches
     for lr_imgs, hr_imgs in tqdm(train_loader):
-        # Move to default device
         # (batch_size (N), 3, 24, 24), imagenet-normed
         lr_imgs = lr_imgs.to(device)
         # (batch_size (N), 3, 96, 96), imagenet-normed
@@ -196,7 +196,6 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
 
         # Calculate VGG feature maps for the super-resolved (SR) and high resolution (HR) images
         sr_imgs_in_vgg_space = truncated_vgg19(sr_imgs)
-        # detached because they're constant, targets
         hr_imgs_in_vgg_space = truncated_vgg19(hr_imgs).detach()
 
         # Discriminate super-resolved (SR) images
@@ -205,23 +204,20 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         # Calculate the Perceptual loss
         content_loss = content_loss_criterion(
             sr_imgs_in_vgg_space, hr_imgs_in_vgg_space)
-        adversarial_loss = adversarial_loss_criterion(
-            sr_discriminated, torch.ones_like(sr_discriminated))
+        if loss_type == 'WGAN':
+            adversarial_loss = -sr_discriminated.mean()
+        else:
+            adversarial_loss = adversarial_loss_criterion(
+                sr_discriminated, torch.ones_like(sr_discriminated))
         perceptual_loss = content_loss + beta * adversarial_loss
-
-        total_content_loss += content_loss
-        total_adversial_loss += adversarial_loss
-        total_perceptual_loss += perceptual_loss
 
         # Back-prop.
         optimizer_g.zero_grad()
         perceptual_loss.backward()
 
-        # Clip gradients, if necessary
         if grad_clip is not None:
             clip_gradient(optimizer_g, grad_clip)
 
-        # Update generator
         optimizer_g.step()
 
         # DISCRIMINATOR UPDATE
@@ -229,20 +225,23 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
         # Discriminate super-resolution (SR) and high-resolution (HR) images
         hr_discriminated = discriminator(hr_imgs)
         sr_discriminated = discriminator(sr_imgs.detach())
-        # But didn't we already discriminate the SR images earlier, before updating the generator (G)? Why not just use that here?
-        # Because, if we used that, we'd be back-propagating (finding gradients) over the G too when backward() is called
-        # It's actually faster to detach the SR images from the G and forward-prop again, than to back-prop. over the G unnecessarily
-        # See FAQ section in the tutorial
 
         # Binary Cross-Entropy loss
-        adversarial_loss = adversarial_loss_criterion(sr_discriminated, torch.zeros_like(sr_discriminated)) + \
-            adversarial_loss_criterion(
-                hr_discriminated, torch.ones_like(hr_discriminated))
-        total_discriminator_loss += adversarial_loss
+        if loss_type == 'WGAN':
+            gradient_penalty = calculate_gradient_penalty(
+                discriminator, hr_imgs, sr_imgs.detach())
+
+            # Wasserstein GAN loss with gradient penalty
+            discriminator_loss = torch.mean(sr_discriminated) - torch.mean(
+                hr_discriminated) + lambda_gp * gradient_penalty
+        else:
+            discriminator_loss = adversarial_loss_criterion(sr_discriminated, torch.zeros_like(sr_discriminated)) + \
+                adversarial_loss_criterion(
+                    hr_discriminated, torch.ones_like(hr_discriminated))
 
         # Back-prop.
         optimizer_d.zero_grad()
-        adversarial_loss.backward()
+        discriminator_loss.backward()
 
         # Clip gradients, if necessary
         if grad_clip is not None:
@@ -250,10 +249,15 @@ def train_epoch(train_loader, generator, discriminator, truncated_vgg19, content
 
         # Update discriminator
         optimizer_d.step()
-    # free some memory since their histories may be stored
+
+        total_content_loss += content_loss
+        total_adversarial_loss += adversarial_loss
+        total_perceptual_loss += perceptual_loss
+        total_discriminator_loss += discriminator_loss
+
     del lr_imgs, hr_imgs, sr_imgs, hr_imgs_in_vgg_space, sr_imgs_in_vgg_space, hr_discriminated, sr_discriminated
 
-    return total_perceptual_loss / len(train_loader), total_content_loss / len(train_loader), total_adversial_loss / len(train_loader), total_discriminator_loss / len(train_loader)
+    return total_perceptual_loss / len(train_loader), total_content_loss / len(train_loader), total_adversarial_loss / len(train_loader), total_discriminator_loss / len(train_loader)
 
 
 def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
@@ -263,9 +267,7 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
     num_images_to_plot = 3
     imgs_to_plot = deque(maxlen=num_images_to_plot)
     with torch.no_grad():
-        # Batches
         for lr_imgs, hr_imgs in tqdm(test_loader):
-            # Move to default device
             # (batch_size (1), 3, w / 4, h / 4), imagenet-normed
             lr_imgs = lr_imgs.to(device)
             # (batch_size (1), 3, w, h), in [-1, 1]
@@ -287,13 +289,16 @@ def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
             imgs_to_plot.append(
                 (lr_imgs[0].cpu(), hr_imgs[0].cpu(), sr_imgs[0].cpu()))
 
+        logged_images_dict = {}
         for i, (lr_img, hr_img, sr_img) in enumerate(imgs_to_plot):
-            logger.log({
-                f'lr_{i}': wandb.Image(convert_image(lr_img, source='imagenet-norm', target='pil')),
-                f'hr_{i}': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
-                f'sr_{i}': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
-            })
-    return psnrs, ssims
+            logged_images_dict[f'lr_{i}'] = wandb.Image(
+                convert_image(lr_img, source='imagenet-norm', target='pil'))
+            logged_images_dict[f'hr_{i}'] = wandb.Image(
+                convert_image(hr_img, source='[-1, 1]', target='pil'))
+            logged_images_dict[f'sr_{i}'] = wandb.Image(
+                convert_image(sr_img, source='[-1, 1]', target='pil'))
+        # logger.log(logged_images_dict)
+    return psnrs, ssims, logged_images_dict
 
 
 if __name__ == '__main__':
