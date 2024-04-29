@@ -25,14 +25,22 @@ class _ResidualBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
+        out = x
+        # Apply attention mechanism if available
         if hasattr(self, 'attention'):
             batch_size, num_channels, width, height = x.size()
-            x = x.view(batch_size, num_channels,
-                       width * height).permute(0, 2, 1)
-            out, _ = self.attention(x, x, x)
+            # Reshape for attention mechanism
+            x_reshaped = x.view(batch_size, num_channels,
+                                width * height).permute(0, 2, 1)
+            # Apply attention
+            out, _ = self.attention(x_reshaped, x_reshaped, x_reshaped)
+            # Reshape back to original shape
             out = out.permute(0, 2, 1).view(
                 batch_size, num_channels, width, height)
+
+        # Apply convolutional block
         out = self.conv_block(out)
+        # Add residual connection
         out += residual
         return out
 
