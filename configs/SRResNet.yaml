@@ -17,12 +17,8 @@ discriminator:
 train:
   # Learning parameters
   epochs: 100  # number of training epochs
-  lr_g: 1e-3  # learning rate
-  lr_d: 1e-6  # learning rate
+  lr: 1e-4  # learning rate
   grad_clip: null  # clip if gradients are exploding
-  beta: 1e-5 # weight of adversarial loss
-  loss_type: WGAN
-  lambda_gp: 100 # weight of gradient penalty term in WGAN-GP
 dataset:
   # Data parameters
   data_folder_hyperion: ./data  # folder with JSON data files

@@ -8,10 +8,9 @@ from utils import *
 from logger import Logger
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
-import wandb
 import numpy as np
-from collections import deque
+from evaluate import evaluate
+
 
 device = torch.device("cuda" if torch.cuda.is_available(
 ) else 'mps' if torch.backends.mps.is_available() else "cpu")
@@ -68,12 +67,11 @@ def main():
     train(model, train_loader, test_loader, logger, **train_settings)
 
 
-def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, logger: Logger, lr_g: float, epochs: int, checkpoint=None,
-          grad_clip=None, early_stopping=None):
-    # Initialize model or load checkpoint
+def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, logger: Logger, lr: float, epochs: int,
+          grad_clip=None):
     # Initialize the optimizer
     optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, model.parameters()),
-                                 lr=float(lr_g))
+                                 lr=float(lr))
     # Move to default device
     model = model.to(device)
     criterion = nn.MSELoss().to(device)
@@ -88,15 +86,17 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
                                  optimizer=optimizer,
                                  grad_clip=grad_clip)
         train_end = time.perf_counter()
-        psnrs, ssims = evaluate(model, test_loader, logger)
+        psnrs, ssims, wandb_images = evaluate(model, test_loader)
         eval_end = time.perf_counter()
         logger.log({'epoch_loss': epoch_loss,
                    'epoch_train_time': train_end - epoch_start,
                     'epoch_eval_time': eval_end - train_end,
                     'mean_psnr': np.mean(psnrs),
-                    'mean_ssim': np.mean(ssims)
+                    'mean_ssim': np.mean(ssims),
+                    ** wandb_images
                     })
-        print(f'epoch_loss: {epoch_loss}\n'
+        print(f'{epoch = }\n'
+              f'{epoch_loss = }\n'
               f'epoch_train_time: {train_end - epoch_start}\n'
               f'epoch_eval_time: {eval_end - train_end}\n'
               f'mean_psnr: {np.mean(psnrs)}\n'
@@ -107,7 +107,7 @@ def train(model: nn.Module, train_loader: DataLoader, test_loader: DataLoader, l
         save_checkpoint(epoch, model, str(model), optimizer)
 
 
-def train_epoch(model: nn.Module, train_loader: DataLoader, criterion, optimizer: torch.optim.Optimizer, grad_clip=None):
+def train_epoch(model: nn.Module, train_loader: DataLoader, criterion: nn.Module, optimizer: torch.optim.Optimizer, grad_clip=None):
     """
     One epoch's training.
 
@@ -151,48 +151,6 @@ def train_epoch(model: nn.Module, train_loader: DataLoader, criterion, optimizer
     del lr_imgs, hr_imgs, sr_imgs  # free some memory since their histories may be stored
 
     return total_loss / len(train_loader)
-
-
-def evaluate(model: nn.Module, test_loader: DataLoader, logger: Logger):
-    psnrs = []
-    ssims = []
-    model.eval()
-
-    num_images_to_plot = 3
-    imgs_to_plot = deque(maxlen=num_images_to_plot)
-
-    with torch.no_grad():
-        # Batches
-        for lr_imgs, hr_imgs in tqdm(test_loader):
-            # Move to default device
-            # (batch_size (1), 3, w / 4, h / 4), imagenet-normed
-            lr_imgs = lr_imgs.to(device)
-            # (batch_size (1), 3, w, h), in [-1, 1]
-            hr_imgs = hr_imgs.to(device)
-
-            # Forward prop.
-            sr_imgs = model(lr_imgs)  # (1, 3, w, h), in [-1, 1]
-            # Calculate PSNR and SSIM
-            sr_imgs_y = convert_image(sr_imgs, source='[-1, 1]', target='y-channel').squeeze(
-                0)  # (w, h), in y-channel
-            hr_imgs_y = convert_image(
-                hr_imgs, source='[-1, 1]', target='y-channel').squeeze(0)  # (w, h), in y-channel
-            psnr = peak_signal_noise_ratio(hr_imgs_y.cpu().numpy(), sr_imgs_y.cpu().numpy(),
-                                           data_range=255.)
-            ssim = structural_similarity(hr_imgs_y.cpu().numpy(), sr_imgs_y.cpu().numpy(),
-                                         data_range=255.)
-            psnrs.append(psnr)
-            ssims.append(ssim)
-            imgs_to_plot.append(
-                (lr_imgs[0].cpu(), hr_imgs[0].cpu(), sr_imgs[0].cpu()))
-
-        for i, (lr_img, hr_img, sr_img) in enumerate(imgs_to_plot):
-            logger.log({
-                f'lr_{i}': wandb.Image(convert_image(lr_img, source='imagenet-norm', target='pil')),
-                f'hr_{i}': wandb.Image(convert_image(hr_img, source='[-1, 1]', target='pil')),
-                f'sr_{i}': wandb.Image(convert_image(sr_img, source='[-1, 1]', target='pil')),
-            })
-    return psnrs, ssims
 
 
 if __name__ == '__main__':
