@@ -203,7 +203,7 @@ def save_checkpoint(epoch, model, model_name, optimizer):
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Process settings from a YAML file.')
-    parser.add_argument('--config', type=str, default='config.yaml',
+    parser.add_argument('--config', type=str, default='configs/SRGAN.yaml',
                         help='Path to YAML configuration file')
     return parser.parse_args()
 
