@@ -20,10 +20,10 @@ train:
   lr_g: 1e-4  # learning rate
   lr_d: 1e-6  # learning rate
   grad_clip: null  # clip if gradients are exploding
-  alpha: 1e+1
+  alpha: 1e+0 # weight of mse loss
   beta: 1e-5 # weight of adversarial loss
   loss_type: WGAN
-  lambda_gp: 100 # weight of gradient penalty term in WGAN-GP
+  lambda_gp: 10 # weight of gradient penalty term in WGAN-GP
 dataset:
   # Data parameters
   data_folder_hyperion: ./data  # folder with JSON data files
