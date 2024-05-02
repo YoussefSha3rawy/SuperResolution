@@ -340,9 +340,4 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,pycharm,macos
 
-*.zip
-data
-img
 wandb
-super_resolve.py
-weights/*
