@@ -1,3 +1,5 @@
+# RUN FROM PROJECT ROOT
+
 source /opt/flight/etc/setup.sh
 flight env activate gridware
 module add gnu
