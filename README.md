@@ -21,3 +21,13 @@ or
 ```bash
 python train_srgan.py --config configs/SRGAN.yaml
 ```
+
+## Weights
+
+Download weights from https://cityuni-my.sharepoint.com/:f:/g/personal/youssef_shaarawy_city_ac_uk/Er3_6Gi4x4RPtzVQbQ6CpEwBTQwqJYfA6QB30QyrkFjoNQ?e=9lKtx3
+
+Add them to the weights folder.
+
+## Dataset
+
+Download dataset from kaggle: https://www.kaggle.com/datasets/ambityga/imagenet100
